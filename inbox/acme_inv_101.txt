@@ -1,0 +1,7 @@
+INVOICE
+Vendor: Acme Corp
+Invoice No: INV-101
+Invoice Date: 2026-08-12
+Due Date: 2026-09-11
+Amount: INR 32,500.00
+Description: Office supplies - August

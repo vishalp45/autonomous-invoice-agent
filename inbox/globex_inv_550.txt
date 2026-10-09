@@ -1,0 +1,7 @@
+INVOICE
+Vendor: Globex Ltd
+Invoice No: INV-550
+Invoice Date: 2026-09-20
+Due Date: 2026-10-20
+Amount: INR 1,25,000.00
+Description: Server hosting - Q3
