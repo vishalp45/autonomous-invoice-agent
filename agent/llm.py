@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 def _load_env():
-    """Read KEY=value lines from <project>/.env into os.environ (real env vars win)."""
+    """Reads KEY=value lines from .env into os.environ (real env vars win)."""
     f = Path(__file__).resolve().parent.parent / ".env"
     if f.is_file():
         for line in f.read_text().splitlines():
@@ -23,7 +23,6 @@ def _load_env():
 _load_env()
 
 def _schema(t: dict) -> dict:
-    """Accept either 'input_schema' (Anthropic style) or 'parameters' (OpenAI/Gemini style)."""
     return t.get("input_schema") or t.get("parameters") or {"type": "object", "properties": {}}
 
 

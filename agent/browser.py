@@ -1,4 +1,4 @@
-"""Browser tools (Playwright). One shared page; each tool returns {"ok": bool, ...}."""
+"""Browser tools (Playwright).each tool returns {"ok": bool, ...}."""
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
