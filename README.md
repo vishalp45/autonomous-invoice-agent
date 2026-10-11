@@ -6,6 +6,121 @@ before risky actions.
 
 > Example: *"Find the latest invoice from Acme Corp and enter it into the finance system. Tell me when it is done."*
 
+## Workflow at a glance
+
+```mermaid
+flowchart TD
+    U["User task<br/>(plain English)"] --> L["Agent loop<br/>agent/loop.py"]
+    L -->|"history + tool menu"| M["LLM provider layer<br/>agent/llm.py<br/>Gemini / OpenAI / Anthropic"]
+    M --> D{"Did the model<br/>request tools?"}
+    D -->|"yes"| T["Toolbox runs them<br/>agent/registry.py + tools.py"]
+    T --> R["Results added to history<br/>(the agent's memory)"]
+    R --> L
+    D -->|"no"| F["Final summary<br/>+ saved record + evidence"]
+```
+
+**Goal → Understand → Plan → Execute → Observe → Adapt → Verify → Complete.**
+The loop stops after at most 15 rounds. The model chooses each next step. The code enforces the rules (approval, duplicate check, verification), so the model cannot skip them.
+
+## Inside the write tool: `save_to_finance_app`
+
+```mermaid
+flowchart TD
+    A["save_to_finance_app(vendor, invoice_no, amount, due_date)"] --> B{"1. Invoice already<br/>in the system?"}
+    B -->|"yes"| E1["Return error: duplicate, nothing written"]
+    B -->|"no"| C{"2. Amount above<br/>Rs 1,00,000?"}
+    C -->|"yes"| H{"Human approves?"}
+    H -->|"no"| E2["Return error: human denied, nothing written"]
+    H -->|"yes"| G
+    C -->|"no"| G["3. Playwright fills the web form<br/>one step at a time"]
+    G -->|"any step fails"| E3["Return error: stop at the first failure"]
+    G -->|"all steps ok"| V{"4. Verifier re-reads the real record.<br/>Vendor, amount, due date match?"}
+    V -->|"no"| E4["Return error: verification failed"]
+    V -->|"yes"| OK["5. Return ok + saved record + screenshot evidence"]
+```
+
+## One example run (sequence)
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Agent as Agent loop
+    participant LLM as LLM
+    participant Tools as Toolbox
+    User->>Agent: "Enter the latest Acme invoice"
+    Agent->>LLM: history + tool menu
+    LLM-->>Agent: call find_invoices("Acme")
+    Agent->>Tools: run find_invoices
+    Tools-->>Agent: invoices, newest first
+    Agent->>LLM: tool result
+    LLM-->>Agent: call read_file(newest invoice)
+    Agent->>Tools: run read_file
+    Tools-->>Agent: invoice text
+    Agent->>LLM: tool result
+    LLM-->>Agent: call save_to_finance_app(...)
+    Agent->>Tools: run save_to_finance_app
+    Tools-->>Agent: ok, saved_record, evidence
+    Agent->>LLM: tool result
+    LLM-->>Agent: final text, no tool calls
+    Agent-->>User: summary + record + evidence path
+```
+
+## Project mind map
+
+```mermaid
+mindmap
+  root((Autonomous Invoice Agent))
+    Brain
+      llm.py provider layer
+      retries and model fallback
+    Loop
+      loop.py
+      history is the memory
+    Tools
+      registry.py and tools.py
+      find_invoices and read_file
+      ask_user
+      save_to_finance_app
+    Safety
+      human approval above Rs 1,00,000
+      duplicate check
+      inbox sandbox and size caps
+    Verification
+      verifier.py
+      screenshot evidence
+    World
+      Flask and SQLite finance app
+      sample invoices
+      Playwright browser
+    Testing
+      eval_tools.py 16 of 16
+      run_agent.py and manual_run.py
+```
+
+## Repository layout
+
+```text
+ai-task-worker/
+├── agent/
+│   ├── loop.py          # the agent loop: ask model -> run tools -> observe -> repeat
+│   ├── llm.py           # one interface over Gemini / OpenAI / Anthropic (+ retries, fallback)
+│   ├── registry.py      # tool menu (TOOL_SCHEMAS) and Toolbox.run dispatcher
+│   ├── tools.py         # find_invoices, list_files, read_file, ask_user, save_to_finance_app
+│   ├── browser.py       # Playwright wrapper (open, fill, click, screenshot)
+│   └── verifier.py      # independent check against the finance system's real records
+├── finance_app/
+│   └── app.py           # mock finance system: Flask + SQLite on localhost:5000
+├── inbox/               # sample invoices (acme_inv_101, acme_inv_102, globex_inv_550)
+├── scripts/
+│   ├── run_agent.py     # run the real agent with a task
+│   ├── manual_run.py    # no-AI baseline with hard-coded steps
+│   └── eval_tools.py    # 16 deterministic checks, no model calls
+├── notes/               # learning notes
+├── requirements.txt
+├── env.example          # blank template; copy to .env and add one key
+└── README.md
+```
+
 ## What it does (one real run, recorded before the large-inbox tools below were added)
 
 The agent decided on its own to: list the inbox -> read both Acme invoices -> compare invoice dates ->
@@ -18,29 +133,6 @@ pick INV-102 -> save it through the finance web form -> receive a verified recor
          -> ok: "Saved and verified against the finance system."  evidence: evidence/INV-102.png
 FINAL: Latest invoice INV-102 entered and verified (Record ID 1).
 ```
-
-## Architecture
-
-```
-User request
-     |
- Agent loop (agent/loop.py)  <---->  LLM provider layer (agent/llm.py)
-     |                               Gemini | OpenAI | Claude  (swappable)
-     v
- Toolbox (agent/registry.py)
-     |-- find_invoices / list_files / read_file   (sandboxed to inbox/; outputs size-capped)
-     |-- ask_user                      (human clarification when the request is ambiguous)
-     '-- save_to_finance_app           (agent/tools.py)
-            1. duplicate check  -> refuse if invoice already exists
-            2. human approval   -> terminal prompt above Rs 1,00,000 (enforced in code)
-            3. browser steps    -> Playwright fills the real web form, every step checked
-            4. verification     -> agent/verifier.py re-reads saved records from the system
-            5. evidence         -> screenshot saved in evidence/
-```
-
-**The loop** (about 20 lines): send history to the model -> if it asks for no tools, it is finished -> otherwise run
-every requested tool, put the results back into history, repeat (max 15 steps).
-The history *is* the agent's memory.
 
 ## Key design decisions
 
